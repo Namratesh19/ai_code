@@ -9,36 +9,58 @@ def chat_with_bot(message, history):
     Handle chat interaction with the LangGraph chatbot
     
     Args:
-        message: Current user message
-        history: List of [user_msg, bot_msg] pairs from previous conversation
+        message: Current user message (string)
+        history: List of message dictionaries with 'role' and 'content' keys
     
-    Returns:
-        Bot response string
+    Yields:
+        Accumulated bot response tokens
     """
-    if not message.strip():
-        return ""
+    print(f"Function called! Message: '{message}'")  # Debug line
+    print(f"History: {history}")  # Debug line
     
-    # Stream the response from the chatbot
-    response_chunks = []
-    for message_chunk, metadata in chatbot.stream(
-        {'messages': [HumanMessage(content=message)]},
-        config=CONFIG,
-        stream_mode='messages'
-    ):
-        if hasattr(message_chunk, 'content') and message_chunk.content:
-            response_chunks.append(message_chunk.content)
+    if not message or not message.strip():
+        yield "Please enter a message."
+        return
     
-    # Combine all chunks into final response
-    bot_response = ''.join(response_chunks)
-    
-    return bot_response
+    try:
+        # Use invoke to get the response
+        result = chatbot.invoke(
+            {'messages': [HumanMessage(content=message.strip())]},
+            config=CONFIG
+        )
+        
+        # Extract the AI response from the result
+        ai_response = ""
+        if 'messages' in result and result['messages']:
+            last_message = result['messages'][-1]
+            if hasattr(last_message, 'content'):
+                ai_response = last_message.content
+        
+        if not ai_response:
+            yield "Sorry, I couldn't generate a response. Please try again."
+            return
+        
+        # Simulate streaming by yielding character by character
+        output = ""
+        for char in ai_response:
+            output += char
+            yield output
+        
+    except Exception as e:
+        print(f"Error in chat_with_bot: {e}")  # Debug line
+        yield f"Error: {str(e)}. Please check your API configuration and try again."
 
 def launch():
     gr.ChatInterface(
         chat_with_bot,
         title="LangGraph Chatbot",
-        description="Chat with your AI assistant powered by LangGraph!"
-    ).launch(share=True)
+        description="Chat with your AI assistant powered by LangGraph!",
+        autofocus=False,
+        type="messages",  # This is crucial!
+    ).queue().launch(
+        share=True,
+        height=850,
+    )
 
 if __name__ == "__main__":
     launch()
