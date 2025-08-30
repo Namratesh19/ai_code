@@ -13,10 +13,10 @@ def chat_with_bot(message, history):
         history: List of [user_msg, bot_msg] pairs from previous conversation
     
     Returns:
-        Updated history and empty string for the input box
+        Bot response string
     """
     if not message.strip():
-        return history, ""
+        return ""
     
     # Stream the response from the chatbot
     response_chunks = []
@@ -31,53 +31,14 @@ def chat_with_bot(message, history):
     # Combine all chunks into final response
     bot_response = ''.join(response_chunks)
     
-    # Add the conversation to history
-    history.append([message, bot_response])
-    
-    return history, ""
+    return bot_response
 
-# Create the Gradio interface
-with gr.Blocks(title="LangGraph Chatbot") as demo:
-    gr.Markdown("# LangGraph Chatbot")
-    gr.Markdown("Chat with your AI assistant powered by LangGraph!")
-    
-    chatbot_interface = gr.Chatbot(
-        label="Conversation",
-        height=500,
-        show_label=True
-    )
-    
-    with gr.Row():
-        msg_input = gr.Textbox(
-            placeholder="Type your message here...",
-            label="Message",
-            scale=4
-        )
-        send_btn = gr.Button("Send", scale=1)
-    
-    # Handle message submission
-    def submit_message(message, history):
-        return chat_with_bot(message, history)
-    
-    # Connect the interface elements
-    send_btn.click(
-        fn=submit_message,
-        inputs=[msg_input, chatbot_interface],
-        outputs=[chatbot_interface, msg_input]
-    )
-    
-    msg_input.submit(
-        fn=submit_message,
-        inputs=[msg_input, chatbot_interface],
-        outputs=[chatbot_interface, msg_input]
-    )
-    
-    # Add a clear button
-    clear_btn = gr.Button("Clear Conversation")
-    clear_btn.click(
-        fn=lambda: ([], ""),
-        outputs=[chatbot_interface, msg_input]
-    )
+def launch():
+    gr.ChatInterface(
+        chat_with_bot,
+        title="LangGraph Chatbot",
+        description="Chat with your AI assistant powered by LangGraph!"
+    ).launch(share=True)
 
 if __name__ == "__main__":
-    demo.launch(share=True)
+    launch()
