@@ -160,9 +160,82 @@ print(f"Improvement: {optimized_accuracy - original_accuracy:.2f}")
 #     init_temperature=1.0,
 # )
 
-print("\n=== TIPS FOR SUCCESS ===")
-print("1. Make sure your metric function is reliable")
-print("2. Use enough training examples (20+ recommended)")
-print("3. Try different optimizers for different tasks")
-print("4. Always evaluate on held-out validation data")
-print("5. Experiment with optimizer hyperparameters")
+print("\n=== ADVANCED TRACE USAGE TIPS ===")
+print("1. Use trace to debug why predictions are wrong")
+print("2. Create metrics that reward good reasoning processes")
+print("3. Analyze prompt patterns that lead to better performance")
+print("4. Use trace info to detect when the model is uncertain")
+print("5. Build metrics that penalize confident wrong answers")
+print("6. Trace helps understand how few-shot examples influence reasoning")
+
+# Example: Confidence-aware metric using trace
+def confidence_aware_metric(example, pred, trace=None):
+    """
+    Metric that penalizes confident wrong answers more than uncertain wrong answers.
+    """
+    predicted = pred.sentiment.lower().strip()
+    expected = example.sentiment.lower().strip()
+    
+    if predicted == expected:
+        return 1.0
+    
+    # If wrong, check confidence level from trace
+    confidence_penalty = 0.0
+    if trace:
+        for step in trace:
+            if hasattr(step, 'rationale') and hasattr(step.rationale, 'rationale'):
+                reasoning = step.rationale.rationale.lower()
+                # Look for confidence indicators
+                high_confidence_words = ['definitely', 'clearly', 'obviously', 'certainly', 'sure']
+                if any(word in reasoning for word in high_confidence_words):
+                    confidence_penalty = 0.3  # Extra penalty for being confidently wrong
+    
+    return 0.0 - confidence_penalty  # Wrong answer gets 0, confidently wrong gets negative
+
+# Demonstrate the confidence-aware metric in action
+print("\n=== CONFIDENCE-AWARE METRIC DEMONSTRATION ===")
+
+# Test data with examples that might produce confident wrong answers
+confidence_test_data = [
+    dspy.Example(text="This product is okay, nothing extraordinary.", sentiment="neutral").with_inputs('text'),
+    dspy.Example(text="I'm not sure how I feel about this purchase.", sentiment="neutral").with_inputs('text'),
+]
+
+print("Testing different metrics on the same predictions:")
+for example in confidence_test_data[:1]:  # Test on one example
+    pred = program(text=example.text)
+    
+    # Compare different metric results
+    basic_score = sentiment_accuracy_metric(example, pred)
+    trace_aware_score = trace_aware_sentiment_metric(example, pred, getattr(pred, '_trace', None))
+    confidence_score = confidence_aware_metric(example, pred, getattr(pred, '_trace', None))
+    
+    print(f"\nExample: '{example.text}'")
+    print(f"Expected: {example.sentiment}, Predicted: {pred.sentiment}")
+    print(f"Basic accuracy metric: {basic_score}")
+    print(f"Trace-aware metric: {trace_aware_score}")
+    print(f"Confidence-aware metric: {confidence_score}")
+
+# You can also use the confidence-aware metric with optimizers
+print("\n=== USING CONFIDENCE-AWARE METRIC WITH OPTIMIZER ===")
+confidence_optimizer = BootstrapFewShot(
+    metric=confidence_aware_metric,  # Using our confidence-aware metric
+    max_bootstrapped_demos=3,
+    max_labeled_demos=6,
+    max_rounds=1,
+    max_errors=2
+)
+
+print("Optimizing with confidence-aware metric...")
+confidence_optimized_program = confidence_optimizer.compile(
+    student=SentimentProgram(),
+    trainset=training_data[:4]  # Use subset for faster demo
+)
+
+print("Testing confidence-optimized program:")
+for example in validation_data[:1]:
+    pred = confidence_optimized_program(text=example.text)
+    score = confidence_aware_metric(example, pred, getattr(pred, '_trace', None))
+    print(f"Text: {example.text}")
+    print(f"Prediction: {pred.sentiment}")
+    print(f"Confidence-aware score: {score}")
