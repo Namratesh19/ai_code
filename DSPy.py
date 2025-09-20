@@ -1,4 +1,26 @@
-import dspy
+# Standard evaluation function (kept for comparison)
+def evaluate_program(program, dataset, metric_func):
+    """Evaluate a program on a dataset using a metric."""
+    total_score = 0
+    total_examples = len(dataset)
+    
+    for example in dataset:
+        pred = program(text=example.text)
+        score = metric_func(example, pred)
+        total_score += score
+    
+    return total_score / total_examples
+
+# Run detailed trace evaluations
+print("=== TRACE DEMONSTRATIONS ===")
+
+# Test trace evaluation on original program
+print("\n1. Testing trace-aware evaluation:")
+detailed_trace_evaluation(program, validation_data[:1])
+
+# Test built-in trace functionality
+print("\n2. Testing built-in trace access:")
+evaluate_with_built_in_trace(program, validation_data[:1])import dspy
 import random
 
 # 1. Configure your language model
@@ -39,7 +61,7 @@ validation_data = [
     dspy.Example(text="The product works as described.", sentiment="neutral").with_inputs('text'),
 ]
 
-# 6. Define your evaluation metric
+# 6. Define your evaluation metric WITH trace usage
 def sentiment_accuracy_metric(example, pred, trace=None):
     """
     Metric function that evaluates if the predicted sentiment matches the expected sentiment.
@@ -47,7 +69,7 @@ def sentiment_accuracy_metric(example, pred, trace=None):
     Args:
         example: The ground truth example with expected output
         pred: The prediction from your program
-        trace: Optional execution trace (not used here)
+        trace: Optional execution trace containing the program's reasoning steps
     
     Returns:
         bool: True if prediction is correct, False otherwise
@@ -56,28 +78,67 @@ def sentiment_accuracy_metric(example, pred, trace=None):
     predicted_sentiment = pred.sentiment.lower().strip()
     expected_sentiment = example.sentiment.lower().strip()
     
+    # Use trace for debugging and additional scoring
+    if trace is not None:
+        print(f"\n--- TRACE ANALYSIS ---")
+        print(f"Input text: {example.text}")
+        print(f"Expected: {expected_sentiment}, Predicted: {predicted_sentiment}")
+        
+        # The trace contains the execution history
+        for i, step in enumerate(trace):
+            print(f"\nStep {i+1}: {step}")
+            
+            # If this step has a completion (LM output), show it
+            if hasattr(step, 'completion') and step.completion:
+                print(f"  Raw LM Output: {step.completion}")
+            
+            # Show any intermediate reasoning
+            if hasattr(step, 'rationale') and hasattr(step.rationale, 'rationale'):
+                print(f"  Reasoning: {step.rationale.rationale}")
+    
     # Check if they match
     return predicted_sentiment == expected_sentiment
 
-# Alternative: More sophisticated metric with partial credit
-def enhanced_sentiment_metric(example, pred, trace=None):
-    """Enhanced metric that gives partial credit for reasonable predictions."""
+# Alternative: Advanced metric using trace for quality assessment
+def trace_aware_sentiment_metric(example, pred, trace=None):
+    """
+    Enhanced metric that uses trace information to assess reasoning quality.
+    """
     predicted = pred.sentiment.lower().strip()
     expected = example.sentiment.lower().strip()
     
-    # Exact match gets full score
-    if predicted == expected:
-        return 1.0
+    base_score = 1.0 if predicted == expected else 0.0
     
-    # Partial credit for reasonable confusion (e.g., neutral vs positive)
-    reasonable_confusion = {
-        ('neutral', 'positive'): 0.3,
-        ('positive', 'neutral'): 0.3,
-        ('neutral', 'negative'): 0.3,
-        ('negative', 'neutral'): 0.3,
-    }
+    if trace is None:
+        return base_score
     
-    return reasonable_confusion.get((predicted, expected), 0.0)
+    # Bonus points for good reasoning (if using ChainOfThought)
+    reasoning_bonus = 0.0
+    
+    for step in trace:
+        if hasattr(step, 'rationale') and hasattr(step.rationale, 'rationale'):
+            reasoning = step.rationale.rationale.lower()
+            
+            # Check if reasoning mentions relevant sentiment indicators
+            positive_words = ['good', 'great', 'excellent', 'love', 'amazing', 'fantastic']
+            negative_words = ['bad', 'terrible', 'awful', 'hate', 'disappointing', 'poor']
+            neutral_words = ['okay', 'average', 'normal', 'fine', 'adequate']
+            
+            reasoning_quality = 0
+            if expected == 'positive' and any(word in reasoning for word in positive_words):
+                reasoning_quality += 0.1
+            elif expected == 'negative' and any(word in reasoning for word in negative_words):
+                reasoning_quality += 0.1
+            elif expected == 'neutral' and any(word in reasoning for word in neutral_words):
+                reasoning_quality += 0.1
+            
+            # Bonus for longer, more detailed reasoning
+            if len(reasoning.split()) > 10:
+                reasoning_quality += 0.05
+                
+            reasoning_bonus = min(0.2, reasoning_quality)  # Cap bonus at 0.2
+    
+    return base_score + reasoning_bonus
 
 # 7. Initialize and evaluate your program BEFORE optimization
 program = SentimentProgram()
@@ -119,18 +180,76 @@ for example in validation_data:
     print(f"Expected: {example.sentiment}, Predicted: {pred.sentiment}")
     print(f"Correct: {correct}\n")
 
-# 10. Evaluate performance systematically
-def evaluate_program(program, dataset, metric_func):
-    """Evaluate a program on a dataset using a metric."""
-    total_score = 0
-    total_examples = len(dataset)
+# 10. Demonstrate trace usage with manual evaluation
+def detailed_trace_evaluation(program, examples, show_traces=True):
+    """
+    Evaluate program with detailed trace information.
+    """
+    print("=== DETAILED TRACE EVALUATION ===")
     
-    for example in dataset:
+    for i, example in enumerate(examples):
+        print(f"\n--- Example {i+1} ---")
+        
+        # Enable trace collection
+        with dspy.context(show_trace=show_traces):
+            pred = program(text=example.text)
+            
+            # Get the trace from the context
+            if show_traces:
+                # Access the trace through DSPy's context
+                import dspy
+                trace = dspy.settings.trace if hasattr(dspy.settings, 'trace') else None
+                
+                print(f"Input: {example.text}")
+                print(f"Expected: {example.sentiment}")
+                print(f"Predicted: {pred.sentiment}")
+                
+                # Manual trace analysis
+                if hasattr(pred, '_trace') and pred._trace:
+                    print("Program execution steps:")
+                    for step_idx, step in enumerate(pred._trace):
+                        print(f"  Step {step_idx + 1}: {type(step).__name__}")
+                        
+                        if hasattr(step, 'rationale'):
+                            print(f"    Reasoning: {step.rationale}")
+                        
+                        if hasattr(step, 'completion'):
+                            print(f"    Raw output: {step.completion}")
+                
+                # Evaluate with trace-aware metric
+                score = trace_aware_sentiment_metric(example, pred, getattr(pred, '_trace', None))
+                print(f"Score (with reasoning bonus): {score:.2f}")
+
+# Alternative way to capture traces using DSPy's built-in tracing
+def evaluate_with_built_in_trace(program, examples):
+    """
+    Use DSPy's built-in trace functionality.
+    """
+    print("=== BUILT-IN TRACE EVALUATION ===")
+    
+    for i, example in enumerate(examples[:2]):  # Limit to 2 examples for clarity
+        print(f"\n--- Example {i+1} ---")
+        
+        # Method 1: Use inspect_history after prediction
         pred = program(text=example.text)
-        score = metric_func(example, pred)
-        total_score += score
-    
-    return total_score / total_examples
+        
+        print(f"Input: {example.text}")
+        print(f"Expected: {example.sentiment}")
+        print(f"Predicted: {pred.sentiment}")
+        
+        # Try to access DSPy's internal history
+        try:
+            if hasattr(dspy.settings, 'lm') and hasattr(dspy.settings.lm, 'history'):
+                recent_history = dspy.settings.lm.history[-1:]  # Get most recent call
+                for entry in recent_history:
+                    print(f"Prompt sent to LM:")
+                    print(f"  {entry.get('prompt', 'No prompt found')}")
+                    print(f"Response from LM:")
+                    print(f"  {entry.get('response', 'No response found')}")
+        except Exception as e:
+            print(f"Could not access LM history: {e}")
+        
+        print("-" * 50)
 
 # Compare before and after
 original_accuracy = evaluate_program(SentimentProgram(), validation_data, sentiment_accuracy_metric)
