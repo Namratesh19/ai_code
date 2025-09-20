@@ -260,6 +260,166 @@ print(f"Original Program Accuracy: {original_accuracy:.2f}")
 print(f"Optimized Program Accuracy: {optimized_accuracy:.2f}")
 print(f"Improvement: {optimized_accuracy - original_accuracy:.2f}")
 
+# =====================================================
+# EXTRACTING THE OPTIMIZED PROMPTS AND DEMONSTRATIONS
+# =====================================================
+
+print("\n" + "="*60)
+print("EXTRACTING OPTIMIZED PROMPTS AND DEMONSTRATIONS")
+print("="*60)
+
+def extract_optimized_prompts(optimized_program):
+    """
+    Extract the optimized prompts and few-shot examples from the optimized program.
+    """
+    print("\n=== OPTIMIZED PROGRAM STRUCTURE ===")
+    
+    # Method 1: Access the predictor directly
+    if hasattr(optimized_program, 'predictor'):
+        predictor = optimized_program.predictor
+        print(f"Predictor type: {type(predictor).__name__}")
+        
+        # Check if it has demonstrations (few-shot examples)
+        if hasattr(predictor, 'demos'):
+            print(f"\nNumber of demonstrations: {len(predictor.demos)}")
+            print("\n--- OPTIMIZED FEW-SHOT EXAMPLES ---")
+            
+            for i, demo in enumerate(predictor.demos):
+                print(f"\nDemo {i+1}:")
+                if hasattr(demo, 'text'):
+                    print(f"  Input: {demo.text}")
+                if hasattr(demo, 'sentiment'):
+                    print(f"  Output: {demo.sentiment}")
+                if hasattr(demo, 'rationale'):
+                    print(f"  Reasoning: {demo.rationale}")
+        
+        # Check for optimized instructions/prompts
+        if hasattr(predictor, 'signature'):
+            print(f"\n--- OPTIMIZED SIGNATURE ---")
+            print(f"Signature: {predictor.signature}")
+            
+            # Try to access the actual prompt template
+            if hasattr(predictor.signature, 'instructions'):
+                print(f"Instructions: {predictor.signature.instructions}")
+        
+        # Method 2: Try to access the prompt template directly
+        if hasattr(predictor, 'prompt_template'):
+            print(f"\n--- PROMPT TEMPLATE ---")
+            print(predictor.prompt_template)
+    
+    return predictor if hasattr(optimized_program, 'predictor') else None
+
+def save_optimized_program(optimized_program, filename="optimized_program.json"):
+    """
+    Save the optimized program to a file for later use.
+    """
+    try:
+        # Try to save the program
+        optimized_program.save(filename)
+        print(f"\n=== PROGRAM SAVED ===")
+        print(f"Optimized program saved to: {filename}")
+        print("You can load it later with: program.load('optimized_program.json')")
+    except Exception as e:
+        print(f"Could not save program: {e}")
+        print("Note: Some DSPy versions may not support saving all program types")
+
+def inspect_actual_prompts(program, example_input):
+    """
+    Run a prediction and capture the actual prompt sent to the language model.
+    """
+    print(f"\n=== ACTUAL PROMPT INSPECTION ===")
+    print("Running prediction to capture the actual prompt...")
+    
+    # Clear any existing history
+    if hasattr(dspy.settings, 'lm') and hasattr(dspy.settings.lm, 'history'):
+        dspy.settings.lm.history.clear()
+    
+    # Make a prediction
+    result = program(text=example_input)
+    
+    # Try to capture the prompt from LM history
+    try:
+        if hasattr(dspy.settings, 'lm') and hasattr(dspy.settings.lm, 'history'):
+            if dspy.settings.lm.history:
+                latest_call = dspy.settings.lm.history[-1]
+                
+                print(f"\n--- ACTUAL PROMPT SENT TO LM ---")
+                if 'prompt' in latest_call:
+                    print(latest_call['prompt'])
+                elif 'messages' in latest_call:
+                    for msg in latest_call['messages']:
+                        print(f"{msg.get('role', 'unknown')}: {msg.get('content', '')}")
+                
+                print(f"\n--- LM RESPONSE ---")
+                if 'response' in latest_call:
+                    print(latest_call['response'])
+                    
+                print(f"\n--- PARSED RESULT ---")
+                print(f"Sentiment: {result.sentiment}")
+                
+                return latest_call
+    except Exception as e:
+        print(f"Could not capture prompt: {e}")
+    
+    return None
+
+def compare_prompts(original_program, optimized_program, example_input):
+    """
+    Compare prompts between original and optimized programs.
+    """
+    print(f"\n=== PROMPT COMPARISON ===")
+    
+    print("\n--- ORIGINAL PROGRAM PROMPT ---")
+    original_prompt = inspect_actual_prompts(original_program, example_input)
+    
+    print("\n" + "="*50)
+    print("--- OPTIMIZED PROGRAM PROMPT ---")
+    optimized_prompt = inspect_actual_prompts(optimized_program, example_input)
+    
+    return original_prompt, optimized_prompt
+
+# Execute the prompt extraction
+print("Extracting optimized prompts and demonstrations...")
+predictor = extract_optimized_prompts(optimized_program)
+
+# Save the optimized program
+save_optimized_program(optimized_program)
+
+# Inspect actual prompts being sent to the LM
+example_text = "This product is really great and I love using it!"
+print(f"\nUsing example: '{example_text}'")
+
+original_prompt, optimized_prompt = compare_prompts(
+    SentimentProgram(), 
+    optimized_program, 
+    example_text
+)
+
+# Additional method: Manual inspection of program components
+print(f"\n=== MANUAL PROGRAM INSPECTION ===")
+print("Optimized program attributes:")
+for attr in dir(optimized_program):
+    if not attr.startswith('_'):
+        try:
+            value = getattr(optimized_program, attr)
+            print(f"  {attr}: {type(value).__name__}")
+        except:
+            print(f"  {attr}: <could not access>")
+
+# Inspect the predictor more deeply
+if predictor:
+    print(f"\nPredictor attributes:")
+    for attr in dir(predictor):
+        if not attr.startswith('_') and not callable(getattr(predictor, attr)):
+            try:
+                value = getattr(predictor, attr)
+                if isinstance(value, (str, int, float, bool, list)) and len(str(value)) < 200:
+                    print(f"  {attr}: {value}")
+                else:
+                    print(f"  {attr}: {type(value).__name__} (length: {len(str(value)) if hasattr(value, '__len__') else 'unknown'})")
+            except:
+                print(f"  {attr}: <could not access>")
+
 # 11. Other optimizers you can try:
 
 # COPRO (Coordinate Ascent Prompt Optimization)
