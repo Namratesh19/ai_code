@@ -518,3 +518,19 @@ for example in validation_data[:1]:
     print(f"Text: {example.text}")
     print(f"Prediction: {pred.sentiment}")
     print(f"Confidence-aware score: {score}")
+
+# Get the optimized few-shot examples
+best_examples = optimized_program.predictor.demos
+print(f"Optimizer selected {len(best_examples)} examples:")
+for i, demo in enumerate(best_examples):
+    print(f"  {i+1}. '{demo.text}' → {demo.sentiment}")
+
+# Get the optimized instructions
+instructions = optimized_program.predictor.signature.instructions
+print(f"Optimized instructions: {instructions}")
+
+# Use these in your own custom prompt
+custom_prompt = f"{instructions}\n\nExamples:\n"
+for demo in best_examples[:3]:  # Use top 3 examples
+    custom_prompt += f"Text: {demo.text}\nSentiment: {demo.sentiment}\n\n"
+custom_prompt += "Text: {your_new_text}\nSentiment:"
